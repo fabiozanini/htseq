@@ -45,17 +45,20 @@ class FileOrSequence(object):
     (case insensitive), it is transparently gunzipped.
     """
 
-    def __init__(self, filename_or_sequence):
+    def __init__(self, filename_or_sequence, open_mode=None):
         self.fos = filename_or_sequence
         self.line_no = None
+        self.open_mode = open_mode
 
     def __iter__(self):
         self.line_no = 1
         if isinstance(self.fos, str):
             if self.fos.lower().endswith((".gz", ".gzip")):
-                lines = gzip.open(self.fos)
+                open_mode = 'rb' if self.open_mode is None else self.open_mode
+                lines = gzip.open(self.fos, mode=open_mode)
             else:
-                lines = open(self.fos)
+                open_mode = 'rt' if self.open_mode is None else self.open_mode
+                lines = open(self.fos, mode=self.open_mode)
         else:
             lines = self.fos
         for line in lines:
@@ -285,7 +288,7 @@ def read_chrom_lens(filename, delimiter="\t"):
 # Sequence readers
 #########################
 
-_re_fasta_header_line = re.compile(r'>\s*(\S+)\s*(.*)')
+_re_fasta_header_line = re.compile(b'>\s*(\S+)\s*(.*)')
 
 
 class FastaReader(FileOrSequence):
@@ -293,24 +296,27 @@ class FastaReader(FileOrSequence):
     to a file-like object with content in FASTA format.
     It can generate an iterator over the sequences.
     """
+    def __init__(self, filename_or_sequence):
+        # Fasta is an ASCII format, so read bytes
+        FileOrSequence.__init__(self, filename_or_sequence, open_mode='rb')
 
     def __iter__(self):
         seq = None
         for line in FileOrSequence.__iter__(self):
             if line.startswith(">"):
                 if seq:
-                    s = Sequence(seq, name)
+                    s = Sequence(b''.join(seq), name)
                     s.descr = descr
                     yield s
                 mo = _re_fasta_header_line.match(line)
-                name = mo.group(1)
-                descr = mo.group(2)
-                seq = b""
+                name = mo.group(1).decode()
+                descr = mo.group(2).decode()
+                seq = []
             else:
                 assert seq is not None, "FASTA file does not start with '>'."
-                seq += line[:-1].encode()
+                seq.append(line[:-1])
         if seq is not None:
-            s = Sequence(seq, name)
+            s = Sequence(b''.join(seq), name)
             s.descr = descr
             yield s
 
